@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Instagram Challenge</title>
+    <script>
+        function showError(message) {
+            document.getElementById("error-message").innerText = message;
+        }
+    </script>
+</head>
+<body>
+    <h1>Enter Verification Code</h1>
+    <p>Enter the code sent to your email or phone.</p>
+    <form method="POST" action="/challenge" onsubmit="showError('Submitting...')">
+        <label for="code">Verification Code:</label>
+        <input type="text" id="code" name="code" required>
+        <button type="submit">Submit</button>
+    </form>
+    <p id="error-message" style="color: red;"></p>
+    <p>Challenge URL: {{ challenge_url }}</p>
+</body>
+</html>
