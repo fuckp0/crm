@@ -409,15 +409,18 @@ def auto_respond():
 def init_driver():
     options = webdriver.ChromeOptions()
     options.add_argument("--headless")  # Run in headless mode
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--no-sandbox")  # Required for non-root on Ubuntu
+    options.add_argument("--disable-dev-shm-usage")  # Overcome limited shared memory
     options.add_argument("--disable-gpu")  # Disable GPU for headless stability
     options.add_argument("--window-size=1920,1080")  # Set window size to avoid rendering issues
     options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     options.add_argument("--disable-blink-features=AutomationControlled")  # Avoid bot detection
+    options.binary_location = "/usr/bin/google-chrome"  # Explicitly set Chrome binary path
+
+    # Automatically manage ChromeDriver
     try:
         driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-        driver.set_page_load_timeout(60)
+        driver.set_page_load_timeout(60)  # Set page load timeout to 60 seconds
         return driver
     except WebDriverException as e:
         logger.error(f"Failed to initialize WebDriver: {str(e)}")
