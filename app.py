@@ -498,6 +498,13 @@ def login():
         flash(f"Insufficient credits. You need {credits_needed} credits to add an account, but you have {credits}.", "danger")
         return redirect(url_for('dashboard'))
 
+    # Limit concurrent WebDriver instances
+    MAX_CONCURRENT_DRIVERS = 2
+    if len(webdriver_instances) >= MAX_CONCURRENT_DRIVERS:
+        logger.warning("Too many concurrent WebDriver instances")
+        flash("Server is busy. Please try again later.", "danger")
+        return redirect(url_for('dashboard'))
+
     if request.method == 'POST':
         instagram_username = request.form.get("username")
         instagram_password = request.form.get("password")
@@ -510,16 +517,16 @@ def login():
         # Store Instagram credentials in session
         session["instagram_username"] = instagram_username
         session["instagram_password"] = instagram_password
-        session["session_id"] = str(uuid.uuid4())  # Unique session ID to track WebDriver instance
+        session["session_id"] = str(uuid.uuid4())
         driver = None
         try:
             logger.info(f"Attempting Instagram login for {instagram_username}")
             driver = init_driver()
             webdriver_instances[session["session_id"]] = driver
             driver.get("https://www.instagram.com/accounts/login/")
+            time.sleep(random.uniform(2, 4))
             
             try:
-                time.sleep(3)
                 current_url = driver.current_url
                 logger.debug(f"Current URL after load: {current_url}")
                 if "challenge" in current_url or "auth_platform/codeentry" in current_url:
@@ -527,6 +534,7 @@ def login():
                     session["challenge_url"] = current_url
                     return redirect(url_for('challenge'))
 
+                # Wait for username field
                 WebDriverWait(driver, 30).until(
                     EC.presence_of_element_located((By.NAME, "username"))
                 )
@@ -534,27 +542,47 @@ def login():
                 driver.find_element(By.NAME, "username").send_keys(instagram_username)
                 driver.find_element(By.NAME, "password").send_keys(instagram_password)
                 
+                # Handle cookie banner if present
+                try:
+                    cookie_button = WebDriverWait(driver, 5).until(
+                        EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Accept All') or contains(text(), 'Allow all cookies') or contains(text(), 'Decline')]"))
+                    )
+                    cookie_button.click()
+                    logger.debug("Cookie banner dismissed")
+                    time.sleep(1)
+                except TimeoutException:
+                    logger.debug("No cookie banner found")
+                
+                # Wait for submit button to be clickable
+                submit_button = None
                 submit_locators = [
                     (By.XPATH, "//button[@type='submit']"),
                     (By.XPATH, "//div[contains(text(), 'Log in')]"),
                     (By.CSS_SELECTOR, "button[type='submit']"),
                     (By.XPATH, "//button[contains(., 'Log in')]")
                 ]
-                submit_button = None
                 for by, value in submit_locators:
                     try:
-                        submit_button = driver.find_element(by, value)
+                        submit_button = WebDriverWait(driver, 10).until(
+                            EC.element_to_be_clickable((by, value))
+                        )
                         break
-                    except NoSuchElementException:
+                    except TimeoutException:
                         continue
                 
                 if submit_button:
-                    submit_button.click()
-                    logger.debug("Submit button clicked")
+                    try:
+                        # Try direct click
+                        submit_button.click()
+                        logger.debug("Submit button clicked directly")
+                    except ElementClickInterceptedException:
+                        # Fallback to JavaScript click
+                        driver.execute_script("arguments[0].click();", submit_button)
+                        logger.debug("Submit button clicked via JavaScript")
+                    time.sleep(random.uniform(3, 5))
                 else:
                     raise NoSuchElementException("Submit button not found")
                 
-                time.sleep(5)
                 current_url = driver.current_url
                 logger.debug(f"Current URL after submit: {current_url}")
                 
@@ -563,6 +591,7 @@ def login():
                     session["challenge_url"] = current_url
                     return redirect(url_for('challenge'))
                 
+                # Wait for post-login elements
                 WebDriverWait(driver, 30).until(
                     EC.presence_of_element_located((
                         By.XPATH, 
@@ -599,27 +628,59 @@ def login():
             
             except TimeoutException as e:
                 logger.error(f"Timeout waiting for elements: {str(e)}")
+                if driver:
+                    driver.save_screenshot("login_timeout.png")
+                    with open("login_page_source.html", "w", encoding="utf-8") as f:
+                        f.write(driver.page_source)
+                    logger.debug("Saved login_timeout.png and login_page_source.html")
                 flash(f"Timeout during Instagram login: {str(e)}", "danger")
                 return redirect(url_for('dashboard'))
             except NoSuchElementException as e:
                 logger.error(f"Element not found: {str(e)}")
+                if driver:
+                    driver.save_screenshot("login_element_not_found.png")
+                    with open("login_page_source.html", "w", encoding="utf-8") as f:
+                        f.write(driver.page_source)
+                    logger.debug("Saved login_element_not_found.png and login_page_source.html")
                 flash(f"Element not found during Instagram login: {str(e)}", "danger")
                 return redirect(url_for('dashboard'))
-            
-        except WebDriverException as e:
-            logger.error(f"WebDriver error: {str(e)}")
-            flash(f"WebDriver error during Instagram login: {str(e)}", "danger")
-            return redirect(url_for('dashboard'))
-        except Exception as e:
-            logger.error(f"Unexpected error: {str(e)}")
-            flash(f"Unexpected error during Instagram login: {str(e)}", "danger")
-            return redirect(url_for('dashboard'))
+            except ElementClickInterceptedException as e:
+                logger.error(f"Click intercepted: {str(e)}")
+                if driver:
+                    driver.save_screenshot("login_click_intercepted.png")
+                    with open("login_page_source.html", "w", encoding="utf-8") as f:
+                        f.write(driver.page_source)
+                    logger.debug("Saved login_click_intercepted.png and login_page_source.html")
+                flash(f"Click intercepted during Instagram login: {str(e)}", "danger")
+                return redirect(url_for('dashboard'))
+            except WebDriverException as e:
+                logger.error(f"WebDriver error: {str(e)}")
+                if driver:
+                    driver.save_screenshot("login_webdriver_error.png")
+                    with open("login_page_source.html", "w", encoding="utf-8") as f:
+                        f.write(driver.page_source)
+                    logger.debug("Saved login_webdriver_error.png and login_page_source.html")
+                flash(f"WebDriver error during Instagram login: {str(e)}", "danger")
+                return redirect(url_for('dashboard'))
+            except Exception as e:
+                logger.error(f"Unexpected error: {str(e)}")
+                if driver:
+                    driver.save_screenshot("login_unexpected_error.png")
+                    with open("login_page_source.html", "w", encoding="utf-8") as f:
+                        f.write(driver.page_source)
+                    logger.debug("Saved login_unexpected_error.png and login_page_source.html")
+                flash(f"Unexpected error during Instagram login: {str(e)}", "danger")
+                return redirect(url_for('dashboard'))
         
         finally:
             if "challenge_url" not in session and driver:
-                driver.quit()
-                if session["session_id"] in webdriver_instances:
-                    del webdriver_instances[session["session_id"]]
+                try:
+                    driver.quit()
+                    logger.info(f"WebDriver closed for session {session.get('session_id')}")
+                except Exception as e:
+                    logger.error(f"Error closing WebDriver: {str(e)}")
+                if session.get("session_id") in webdriver_instances:
+                    del webdriver_instances[session.get("session_id")]
     
     logger.info("Rendering login.html")
     return render_template("login.html")
