@@ -408,19 +408,33 @@ def auto_respond():
 # Initialize Selenium WebDriver
 def init_driver():
     options = webdriver.ChromeOptions()
-    options.add_argument("--headless")  # Run in headless mode
-    options.add_argument("--no-sandbox")  # Required for non-root on Ubuntu
-    options.add_argument("--disable-dev-shm-usage")  # Overcome limited shared memory
+    # Essential headless mode settings
+    options.add_argument("--headless=new")  # New headless mode for Chrome 96+
+    options.add_argument("--no-sandbox")  # Required for Linux servers
+    options.add_argument("--disable-dev-shm-usage")  # Prevent shared memory issues
     options.add_argument("--disable-gpu")  # Disable GPU for headless stability
     options.add_argument("--window-size=1920,1080")  # Set window size to avoid rendering issues
+    options.add_argument("--remote-debugging-port=9222")  # Fix DevToolsActivePort issue
+    options.add_argument("--disable-setuid-sandbox")  # Additional stability on Linux
+    
+    # Anti-bot detection settings
     options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     options.add_argument("--disable-blink-features=AutomationControlled")  # Avoid bot detection
-    options.binary_location = "/usr/bin/google-chrome"  # Explicitly set Chrome binary path
-
-    # Automatically manage ChromeDriver
+    options.add_argument("--disable-extensions")  # Reduce resource usage
+    options.add_argument("--start-maximized")  # Ensure full rendering
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])  # Hide automation flags
+    options.add_experimental_option("useAutomationExtension", False)  # Disable automation extension
+    
+    # Logging for debugging
+    options.add_argument("--enable-logging")  # Enable Chrome logs
+    options.add_argument("--log-level=0")  # Detailed logs
+    options.add_argument("--v=1")  # Verbose logging for diagnostics
+    
     try:
-        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-        driver.set_page_load_timeout(60)  # Set page load timeout to 60 seconds
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=options)
+        driver.set_page_load_timeout(60)
+        logger.info("WebDriver initialized successfully")
         return driver
     except WebDriverException as e:
         logger.error(f"Failed to initialize WebDriver: {str(e)}")
